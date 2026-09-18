@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}团队 · KnowFlow{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <div><p class="breadcrumb">团队</p><h1>{{ organization.name }}</h1><p>管理空间成员、邀请链接与访问角色。</p></div>
+  </section>
+  <section class="workflow-layout">
+    <div class="workflow-list">
+      <article class="workflow-editor">
+        <h2>成员</h2>
+        <table class="document-table"><thead><tr><th>用户名</th><th>邮箱</th><th>角色</th></tr></thead><tbody>
+          {% for member in members %}<tr><td>{{ member.user.username }}</td><td>{{ member.user.email|default:"未设置" }}</td><td>{{ member.get_role_display }}</td></tr>{% endfor %}
+        </tbody></table>
+      </article>
+      <article class="workflow-editor">
+        <h2>待接受的邀请</h2>
+        <table class="document-table"><thead><tr><th>邮箱</th><th>角色</th><th>到期时间</th></tr></thead><tbody>
+          {% for invitation in invitations %}<tr><td>{{ invitation.email }}</td><td>{{ invitation.get_role_display }}</td><td>{{ invitation.expires_at|date:"Y-m-d H:i" }}</td></tr>{% empty %}<tr><td colspan="3" class="table-empty">当前没有待接受的邀请。</td></tr>{% endfor %}
+        </tbody></table>
+      </article>
+    </div>
+    <aside class="workflow-editor">
+      <h2>邀请成员</h2>
+      {% if membership.role == "owner" %}
+        <form method="post" action="{% url 'invitation_create' %}" class="stack-form">{% csrf_token %}
+          <label>{{ form.email.label }}{{ form.email }}{{ form.email.errors }}</label>
+          <label>{{ form.role.label }}{{ form.role }}</label>
+          <button class="button button-primary">生成邀请链接</button>
+        </form>
+      {% else %}
+        <p class="muted">只有空间所有者可以生成邀请链接。</p>
+      {% endif %}
+    </aside>
+  </section>
+{% endblock %}

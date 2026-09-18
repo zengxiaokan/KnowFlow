@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}创建空间 · KnowFlow{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block body %}
+  <main class="auth-layout">
+    <aside class="auth-visual" aria-hidden="true">
+      <span class="auth-visual-mark">K</span>
+    </aside>
+    <section class="auth-form-panel" aria-labelledby="signup-heading">
+      <div class="auth-form-wrap">
+        <a class="auth-wordmark" href="/" aria-label="KnowFlow 首页">KnowFlow</a>
+        <header class="auth-heading">
+          <h1 id="signup-heading">创建你的知识空间</h1>
+          <p>注册后会自动创建一个只属于你的个人组织空间。</p>
+        </header>
+        <form method="post" class="auth-form" novalidate>
+          {% csrf_token %}
+          {{ form.non_field_errors }}
+          <label>用户名<span class="auth-input"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5"></circle><path d="M4.5 20c.8-4 3.3-6 7.5-6s6.7 2 7.5 6"></path></svg>{{ form.username }}</span>{{ form.username.errors }}</label>
+          <label>邮箱地址<span class="auth-input"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5.5" width="17" height="13" rx="2"></rect><path d="m4.5 7 7.5 6 7.5-6"></path></svg>{{ form.email }}</span>{{ form.email.errors }}</label>
+          <label>密码<span class="auth-input"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>{{ form.password1 }}</span>{{ form.password1.errors }}</label>
+          <label>确认密码<span class="auth-input"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>{{ form.password2 }}</span>{{ form.password2.errors }}</label>
+          <button class="button button-primary auth-submit" type="submit">创建并开始使用</button>
+        </form>
+        <p class="auth-switch">已有账号？ <a href="{% url 'login' %}">登录</a></p>
+      </div>
+    </section>
+  </main>
+{% endblock %}

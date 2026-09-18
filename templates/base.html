@@ -1,0 +1,47 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="KnowFlow 企业 AI 知识库与智能工作流平台">
+    <title>{% block title %}KnowFlow{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  </head>
+  <body class="{% block body_class %}app-shell{% endblock %}">
+    {% block body %}
+      <aside class="sidebar">
+        <a class="brand" href="{% url 'dashboard' %}" aria-label="KnowFlow 首页">
+          <span class="brand-mark">K</span><span>KnowFlow</span>
+        </a>
+        <nav class="primary-nav" aria-label="主要导航">
+          <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' or 'knowledge_base' in request.resolver_match.url_name %}is-active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">▧</span>知识库
+          </a>
+          <a href="{% url 'workflow_list' %}" class="{% if 'workflow' in request.resolver_match.url_name %}is-active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">⌘</span>工作流
+          </a>
+          <a href="{% url 'team' %}" class="{% if request.resolver_match.url_name == 'team' %}is-active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">⊙</span>团队
+          </a>
+          <a href="{% url 'swagger-ui' %}"><span class="nav-icon" aria-hidden="true">⌁</span>API 文档</a>
+        </nav>
+        <div class="sidebar-bottom">
+          <a href="/admin/"><span class="nav-icon" aria-hidden="true">⚙</span>管理后台</a>
+          <form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit"><span class="nav-icon" aria-hidden="true">↗</span>退出登录</button></form>
+        </div>
+      </aside>
+      <section class="app-main">
+        <header class="topbar">
+          <div class="workspace-name">个人空间 <span aria-hidden="true">⌄</span></div>
+          <div class="topbar-user"><a href="{% url 'dashboard' %}">用量</a><span class="avatar">{{ request.user.username|slice:":1"|upper }}</span><span>{{ request.user.username }}</span></div>
+        </header>
+        <main class="page-content">
+          {% if messages %}{% for message in messages %}<p class="flash {{ message.tags }}">{{ message }}</p>{% endfor %}{% endif %}
+          {% block content %}{% endblock %}
+        </main>
+      </section>
+    {% endblock %}
+    <script src="{% static 'js/app.js' %}"></script>
+  </body>
+</html>

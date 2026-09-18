@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% load chat_markdown knowledge_extras %}
+{% block title %}{{ knowledge_base.name }} · KnowFlow{% endblock %}
+{% block content %}
+  <section class="detail-layout">
+    <div class="workspace-panel">
+      <div class="page-heading compact"><div><p class="breadcrumb"><a href="{% url 'dashboard' %}">知识库</a> / {{ knowledge_base.name }}</p><h1>{{ knowledge_base.name }}</h1><p>{{ knowledge_base.description|default:"沉淀团队资料，并通过可追溯引用回答问题。" }}</p></div><button class="button button-secondary" data-modal-open="upload-document">上传文档</button></div>
+      <div class="section-tabs"><span class="is-current">文档</span><span>问答</span><span>设置</span></div>
+      <section class="document-table-wrap"><table class="document-table"><thead><tr><th>名称</th><th>类型</th><th>状态</th><th>更新时间</th><th></th></tr></thead><tbody>
+        {% for document in documents %}
+          {% with task=task_by_document|get_item:document.id %}
+          <tr data-task-row="{{ task.id|default:'' }}">
+            <td><a href="{% url 'document_download' document.id %}">{{ document.title }}</a></td><td>{{ document.file_type|upper }}</td>
+            <td><span class="status status-{{ document.status }}" data-task-status>{% if document.status == "ready" %}已就绪{% elif document.status == "failed" %}失败{% elif document.status == "processing" %}处理中{% else %}已上传{% endif %}</span>{% if task and task.status != "succeeded" %}<span class="progress-copy" data-task-progress>{{ task.stage }} {{ task.progress }}%</span>{% endif %}</td>
+            <td>{{ document.updated_at|date:"Y-m-d H:i" }}</td>
+            <td>{% if task %}<span class="row-actions">{% if task.status == "failed" %}<form method="post" action="{% url 'ingestion_retry' task.id %}">{% csrf_token %}<button class="link-button">重试</button></form>{% endif %}<span data-task-id="{{ task.id }}"></span></span>{% endif %}</td>
+          </tr>
+          {% endwith %}
+        {% empty %}<tr><td colspan="5" class="table-empty">还没有文档。上传第一份资料开始构建知识库。</td></tr>{% endfor %}
+      </tbody></table></section>
+    </div>
+    <aside class="chat-panel" id="chat-panel" data-initial-conversation="{{ conversation.id|default:'' }}">
+      <button class="chat-resize-handle" id="chat-resize-handle" type="button" aria-label="拖动调整问答面板宽度" title="拖动调整宽度"></button>
+      <header><div><strong>知识库助手</strong><p>回答均附带资料引用</p></div><span class="chat-presence">●</span></header>
+      <div class="chat-log" id="chat-log" aria-live="polite">
+        {% if conversation %}{% for message in conversation.messages.all %}
+          <article class="chat-message {{ message.role }}" data-message-id="{{ message.id }}"><div class="message-content">{% if message.role == "assistant" %}{{ message.content|render_markdown }}{% else %}{{ message.content|linebreaksbr }}{% endif %}</div>{% if message.sources.all %}<div class="sources">{% for source in message.sources.all %}<a href="{% url 'document_download' source.document_version.document.id %}">[{{ forloop.counter }}] {{ source.document_version.document.title }}</a>{% endfor %}</div>{% endif %}</article>
+        {% endfor %}{% else %}<div class="chat-empty"><strong>开始向资料提问</strong><p>例如：“这个项目的部署流程是什么？”</p></div>{% endif %}
+      </div>
+      <form id="question-form" class="question-form" action="{% url 'ask_question' knowledge_base.id %}" method="post">{% csrf_token %}<input type="hidden" name="conversation_id" id="conversation-id" value="{{ conversation.id|default:'' }}"><label class="sr-only" for="question-input">向知识库提问</label><textarea id="question-input" name="content" rows="3" placeholder="输入问题，Enter 发送，Shift + Enter 换行"></textarea><div><span id="usage-label">仅使用当前知识库中的资料</span><button class="button button-primary" type="submit">发送</button></div></form>
+    </aside>
+  </section>
+  <dialog id="upload-document" class="modal"><form method="post" action="{% url 'document_upload' knowledge_base.id %}" enctype="multipart/form-data" class="stack-form">{% csrf_token %}<div class="modal-heading"><h2>批量上传文档</h2><button type="button" class="icon-button" data-modal-close>×</button></div><p class="muted">支持文本型 PDF、DOCX、Markdown；可一次选择最多 {{ batch_upload_limit }} 个文件，单个不超过 20 MB。扫描件 PDF 会明确标记为失败。</p><label>{{ upload_form.files.label }}{{ upload_form.files }}</label><button class="button button-primary" type="submit">开始处理</button></form></dialog>
+{% endblock %}
