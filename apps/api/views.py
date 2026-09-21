@@ -10,11 +10,12 @@ from apps.chat.services import submit_question
 from apps.identity.models import Membership
 from apps.knowledge.models import Document, IngestionTask
 from apps.knowledge.permissions import (
+    can_delete_knowledge_base,
     can_manage_knowledge_base,
     get_visible_knowledge_base,
     visible_knowledge_bases,
 )
-from apps.knowledge.services import create_uploaded_document, retry_ingestion
+from apps.knowledge.services import create_uploaded_document, delete_knowledge_base, retry_ingestion
 from apps.workflows.models import Workflow
 from apps.workflows.services import launch_workflow
 
@@ -49,9 +50,9 @@ class KnowledgeBaseViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not can_manage_knowledge_base(self.request.user, instance):
+        if not can_delete_knowledge_base(self.request.user, instance):
             raise PermissionDenied("没有删除知识库的权限")
-        instance.delete()
+        delete_knowledge_base(user=self.request.user, knowledge_base=instance)
 
 
 class DocumentViewSet(mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):

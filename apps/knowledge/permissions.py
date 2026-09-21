@@ -44,3 +44,11 @@ def can_manage_knowledge_base(user, knowledge_base) -> bool:
         knowledge_base.access_scope == KnowledgeBase.AccessScope.ORGANIZATION
         and organization_membership.filter(role=Membership.Role.EDITOR).exists()
     )
+
+
+def can_delete_knowledge_base(user, knowledge_base) -> bool:
+    return Membership.objects.filter(
+        organization=knowledge_base.organization,
+        user=user,
+        role=Membership.Role.OWNER,
+    ).exists()

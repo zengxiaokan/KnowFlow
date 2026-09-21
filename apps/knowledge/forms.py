@@ -10,6 +10,10 @@ class KnowledgeBaseForm(forms.Form):
     description = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"rows": 3}), label="说明"
     )
+
+
+class DocumentRenameForm(forms.Form):
+    title = forms.CharField(max_length=255, label="文档名称")
     access_scope = forms.ChoiceField(
         choices=(("organization", "组织内可见"), ("restricted", "仅获授权成员")),
         initial="organization",

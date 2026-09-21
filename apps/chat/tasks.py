@@ -35,9 +35,14 @@ def _retrieve_sources(knowledge_base, question: str):
             right_norm = sqrt(sum(value * value for value in vector))
             return 1 - numerator / (left_norm * right_norm) if left_norm and right_norm else 1
 
-        return sorted(chunks, key=cosine_distance)[: settings.RAG_CANDIDATE_COUNT]
+        candidates = sorted(chunks, key=cosine_distance)[: settings.RAG_CANDIDATE_COUNT]
+        for chunk in candidates:
+            chunk.distance = cosine_distance(chunk)
+        return [
+            chunk for chunk in candidates if chunk.distance <= settings.RAG_MAX_COSINE_DISTANCE
+        ]
 
-    return list(
+    candidates = list(
         Chunk.objects.filter(
             knowledge_base=knowledge_base,
             document_version__document__current_version=F("document_version"),
@@ -45,6 +50,7 @@ def _retrieve_sources(knowledge_base, question: str):
         .annotate(distance=CosineDistance("embedding", vector))
         .order_by("distance")[: settings.RAG_CANDIDATE_COUNT]
     )
+    return [chunk for chunk in candidates if chunk.distance <= settings.RAG_MAX_COSINE_DISTANCE]
 
 
 def select_context_chunks(candidates, limit: int | None = None):
@@ -122,11 +128,13 @@ def generate_answer(self, assistant_message_id: str):
         return {"message_id": str(assistant.id), "status": assistant.status}
 
     conversation = assistant.conversation
-    question_message = (
-        conversation.messages.filter(role=Message.Role.USER, created_at__lte=assistant.created_at)
-        .order_by("-created_at")
-        .first()
-    )
+    question_message = assistant.in_reply_to
+    if question_message is None:
+        question_message = (
+            conversation.messages.filter(role=Message.Role.USER, created_at__lte=assistant.created_at)
+            .order_by("-created_at")
+            .first()
+        )
     question = question_message.content
     history = _recent_history(conversation, question_message)
     started = time.monotonic()
@@ -136,7 +144,7 @@ def generate_answer(self, assistant_message_id: str):
         candidates = _retrieve_sources(conversation.knowledge_base, question)
         sources = select_context_chunks(candidates)
         if not sources:
-            raise ProviderConfigurationError("当前知识库没有可检索的已处理文本")
+            return _complete_no_relevant_sources(assistant)
         provider = get_chat_provider()
         model_messages = _messages_for_model(question, sources, history)
         publish_conversation(
@@ -225,3 +233,24 @@ def _fail_answer(assistant, error_message: str):
         "answer.failed",
         {"message_id": str(assistant.id), "error": assistant.error_message},
     )
+
+
+def _complete_no_relevant_sources(assistant):
+    content = "未找到与该问题相关的资料。请换一种说法，或先上传包含该主题的文档。"
+    assistant.content = content
+    assistant.status = Message.Status.COMPLETE
+    assistant.error_message = ""
+    assistant.save(update_fields=["content", "status", "error_message"])
+    assistant.conversation.updated_at = timezone.now()
+    assistant.conversation.save(update_fields=["updated_at"])
+    publish_conversation(
+        assistant.conversation_id,
+        "answer.completed",
+        {
+            "message_id": str(assistant.id),
+            "content": content,
+            "rendered_content": render_assistant_markdown(content),
+            "sources": [],
+        },
+    )
+    return {"message_id": str(assistant.id), "status": assistant.status}

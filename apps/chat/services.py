@@ -26,7 +26,7 @@ def submit_question(*, user, knowledge_base_id, content: str, conversation_id=No
                 created_by=user,
                 title=content[:80],
             )
-        Message.objects.create(
+        user_message = Message.objects.create(
             conversation=conversation,
             role=Message.Role.USER,
             content=content,
@@ -35,6 +35,37 @@ def submit_question(*, user, knowledge_base_id, content: str, conversation_id=No
             conversation=conversation,
             role=Message.Role.ASSISTANT,
             status=Message.Status.GENERATING,
+            in_reply_to=user_message,
         )
         transaction.on_commit(lambda: generate_answer.delay(str(assistant_message.id)))
     return conversation, assistant_message
+
+
+def regenerate_answer(*, user, assistant_message_id):
+    original = Message.objects.select_related("conversation", "in_reply_to").get(pk=assistant_message_id)
+    conversation = original.conversation
+    if original.role != Message.Role.ASSISTANT or conversation.created_by_id != user.id:
+        raise PermissionError("没有重新生成该回答的权限")
+    if original.status == Message.Status.GENERATING:
+        raise ValueError("该回答仍在生成中")
+    question = original.in_reply_to
+    if question is None:
+        question = (
+            conversation.messages.filter(
+                role=Message.Role.USER, created_at__lte=original.created_at
+            )
+            .order_by("-created_at")
+            .first()
+        )
+    if question is None:
+        raise ValueError("找不到该回答对应的问题")
+    with transaction.atomic():
+        regenerated = Message.objects.create(
+            conversation=conversation,
+            role=Message.Role.ASSISTANT,
+            status=Message.Status.GENERATING,
+            in_reply_to=question,
+        )
+        conversation.save(update_fields=["updated_at"])
+        transaction.on_commit(lambda: generate_answer.delay(str(regenerated.id)))
+    return conversation, regenerated

@@ -57,7 +57,9 @@ def process_document(self, ingestion_task_id: str):
     Document.objects.filter(pk=document.pk).update(status=Document.Status.PROCESSING)
 
     try:
-        text, metadata = extract_text(document.source_file, document.file_type)
+        source_file = version.source_file or document.source_file
+        file_type = version.file_type or document.file_type
+        text, metadata = extract_text(source_file, file_type)
         version.extracted_characters = len(text)
         version.metadata = metadata
         version.save(update_fields=["extracted_characters", "metadata"])

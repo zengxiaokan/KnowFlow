@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError
 from django.db.models import Count, Q, Sum
 from django.http import FileResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -10,14 +11,21 @@ from apps.chat.models import Conversation, ModelUsageRecord
 from apps.identity.models import Membership
 from apps.identity.services import record_audit
 
-from .forms import DocumentBatchUploadForm, KnowledgeBaseForm
+from .forms import DocumentBatchUploadForm, DocumentRenameForm, KnowledgeBaseForm
 from .models import Document, IngestionTask, KnowledgeBase
 from .permissions import (
+    can_delete_knowledge_base,
     can_manage_knowledge_base,
     get_visible_knowledge_base,
     visible_knowledge_bases,
 )
-from .services import create_uploaded_document, retry_ingestion
+from .services import (
+    create_document_version,
+    create_uploaded_document,
+    delete_document,
+    delete_knowledge_base,
+    retry_ingestion,
+)
 
 
 @login_required
@@ -75,7 +83,7 @@ def knowledge_base_create(request):
 @login_required
 def knowledge_base_detail(request, knowledge_base_id):
     knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
-    documents = knowledge_base.documents.select_related("current_version").all()
+    documents = knowledge_base.documents.select_related("current_version").prefetch_related("versions")
     tasks = (
         IngestionTask.objects.filter(document_version__document__knowledge_base=knowledge_base)
         .select_related("document_version__document")
@@ -84,11 +92,17 @@ def knowledge_base_detail(request, knowledge_base_id):
     task_by_document = {}
     for task in tasks:
         task_by_document.setdefault(task.document_version.document_id, task)
-    recent_conversation = (
+    conversations = (
         Conversation.objects.filter(knowledge_base=knowledge_base, created_by=request.user)
         .prefetch_related("messages__sources__document_version__document")
-        .first()
     )
+    requested_conversation = request.GET.get("conversation")
+    if requested_conversation and requested_conversation != "new":
+        recent_conversation = get_object_or_404(conversations, pk=requested_conversation)
+    elif requested_conversation == "new":
+        recent_conversation = None
+    else:
+        recent_conversation = conversations.first()
     return render(
         request,
         "knowledge/detail.html",
@@ -99,6 +113,15 @@ def knowledge_base_detail(request, knowledge_base_id):
             "upload_form": DocumentBatchUploadForm(),
             "batch_upload_limit": settings.MAX_BATCH_UPLOAD_COUNT,
             "conversation": recent_conversation,
+            "conversations": conversations,
+            "knowledge_base_form": KnowledgeBaseForm(
+                initial={
+                    "name": knowledge_base.name,
+                    "description": knowledge_base.description,
+                    "access_scope": knowledge_base.access_scope,
+                }
+            ),
+            "can_delete_knowledge_base": can_delete_knowledge_base(request.user, knowledge_base),
         },
     )
 
@@ -121,6 +144,102 @@ def document_upload(request, knowledge_base_id):
         )
     messages.success(request, f"已添加 {len(form.cleaned_data['files'])} 个文档，正在后台解析。")
     return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def document_update(request, document_id):
+    document = get_object_or_404(Document.objects.select_related("knowledge_base"), pk=document_id)
+    knowledge_base = get_visible_knowledge_base(request.user, document.knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseBadRequest("你没有更新文档的权限")
+    try:
+        create_document_version(
+            user=request.user,
+            document=document,
+            uploaded_file=request.FILES.get("file"),
+        )
+    except (ValueError, AttributeError) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"已创建《{document.title}》的新版本，正在后台解析。")
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def document_rename(request, document_id):
+    document = get_object_or_404(Document.objects.select_related("knowledge_base"), pk=document_id)
+    knowledge_base = get_visible_knowledge_base(request.user, document.knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseBadRequest("你没有重命名文档的权限")
+    form = DocumentRenameForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, form.errors["title"][0])
+    else:
+        document.title = form.cleaned_data["title"].strip()
+        document.save(update_fields=["title", "updated_at"])
+        record_audit(
+            organization=knowledge_base.organization,
+            actor=request.user,
+            event="document.renamed",
+            target=document,
+        )
+        messages.success(request, "文档名称已更新。")
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def document_delete(request, document_id):
+    document = get_object_or_404(Document.objects.select_related("knowledge_base"), pk=document_id)
+    knowledge_base = get_visible_knowledge_base(request.user, document.knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseBadRequest("你没有删除文档的权限")
+    title = document.title
+    delete_document(user=request.user, document=document)
+    messages.success(request, f"已永久删除《{title}》及其版本、向量与任务记录。")
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def knowledge_base_update(request, knowledge_base_id):
+    knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseBadRequest("你没有修改知识库的权限")
+    form = KnowledgeBaseForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "请检查知识库名称和设置。")
+    else:
+        knowledge_base.name = form.cleaned_data["name"]
+        knowledge_base.description = form.cleaned_data["description"]
+        knowledge_base.access_scope = form.cleaned_data["access_scope"]
+        try:
+            knowledge_base.save(update_fields=["name", "description", "access_scope", "updated_at"])
+        except IntegrityError:
+            messages.error(request, "同一组织内已存在同名知识库。")
+        else:
+            record_audit(
+                organization=knowledge_base.organization,
+                actor=request.user,
+                event="knowledge_base.updated",
+                target=knowledge_base,
+            )
+            messages.success(request, "知识库设置已保存。")
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def knowledge_base_delete(request, knowledge_base_id):
+    knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
+    if not can_delete_knowledge_base(request.user, knowledge_base):
+        return HttpResponseBadRequest("只有组织所有者可以删除知识库")
+    title = knowledge_base.name
+    delete_knowledge_base(user=request.user, knowledge_base=knowledge_base)
+    messages.success(request, f"已永久删除知识库《{title}》。")
+    return redirect("dashboard")
 
 
 @login_required

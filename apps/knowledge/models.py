@@ -102,6 +102,9 @@ class Document(models.Model):
 class DocumentVersion(models.Model):
     document = models.ForeignKey(Document, related_name="versions", on_delete=models.CASCADE)
     number = models.PositiveIntegerField(default=1)
+    source_file = models.FileField(upload_to="documents/%Y/%m/%d", blank=True)
+    file_type = models.CharField(max_length=16, blank=True)
+    sha256 = models.CharField(max_length=64, blank=True)
     extracted_characters = models.PositiveIntegerField(default=0)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

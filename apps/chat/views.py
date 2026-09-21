@@ -1,9 +1,11 @@
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest, JsonResponse
+from django.shortcuts import redirect
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from .models import Conversation
-from .services import submit_question
+from .models import Conversation, Message
+from .services import regenerate_answer, submit_question
 
 
 @login_required
@@ -26,3 +28,16 @@ def ask_question(request, knowledge_base_id):
         },
         status=202,
     )
+
+
+@login_required
+@require_POST
+def regenerate(request, assistant_message_id):
+    try:
+        conversation, assistant_message = regenerate_answer(
+            user=request.user, assistant_message_id=assistant_message_id
+        )
+    except (Message.DoesNotExist, PermissionError, ValueError) as exc:
+        return HttpResponseBadRequest(str(exc))
+    url = reverse("knowledge_base_detail", args=[conversation.knowledge_base_id])
+    return redirect(f"{url}?conversation={conversation.id}")

@@ -41,6 +41,13 @@ class Message(models.Model):
     conversation = models.ForeignKey(
         Conversation, related_name="messages", on_delete=models.CASCADE
     )
+    in_reply_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        related_name="generated_replies",
+        on_delete=models.SET_NULL,
+    )
     role = models.CharField(max_length=16, choices=Role.choices)
     content = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.COMPLETE)
