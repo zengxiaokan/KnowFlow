@@ -148,6 +148,42 @@ def test_generate_answer_uses_previous_conversation_turn_as_memory(
         generate_answer.apply(args=(str(assistant.id),)).get()
 
     assert any(
-        "随机给我出三道 Java 基础面试题" in message["content"]
-        for message in provider.messages
+        "随机给我出三道 Java 基础面试题" in message["content"] for message in provider.messages
     )
+
+
+@pytest.mark.django_db
+@patch("apps.chat.tasks.publish_conversation")
+@patch("apps.chat.tasks.get_chat_provider")
+@patch("apps.chat.tasks._retrieve_sources", return_value=[])
+def test_generate_answer_returns_a_clear_message_when_no_source_is_relevant(
+    retrieve_sources, get_chat_provider, publish_conversation
+):
+    user = User.objects.create_user(username="no-source", password="test-pass-123")
+    organization = user.organization_memberships.get().organization
+    knowledge_base = KnowledgeBase.objects.create(
+        organization=organization, name="资料", created_by=user
+    )
+    conversation = Conversation.objects.create(
+        organization=organization,
+        knowledge_base=knowledge_base,
+        created_by=user,
+    )
+    question = Message.objects.create(
+        conversation=conversation,
+        role=Message.Role.USER,
+        content="与资料无关的问题",
+    )
+    assistant = Message.objects.create(
+        conversation=conversation,
+        role=Message.Role.ASSISTANT,
+        status=Message.Status.GENERATING,
+        in_reply_to=question,
+    )
+
+    generate_answer.apply(args=(str(assistant.id),)).get()
+
+    assistant.refresh_from_db()
+    assert assistant.status == Message.Status.COMPLETE
+    assert assistant.content.startswith("未找到与该问题相关的资料")
+    get_chat_provider.assert_not_called()

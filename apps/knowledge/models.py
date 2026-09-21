@@ -17,6 +17,7 @@ class KnowledgeBase(models.Model):
     )
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True)
+    assistant_prompt = models.TextField(blank=True)
     access_scope = models.CharField(
         max_length=16,
         choices=AccessScope.choices,

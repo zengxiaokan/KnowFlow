@@ -42,7 +42,9 @@ def submit_question(*, user, knowledge_base_id, content: str, conversation_id=No
 
 
 def regenerate_answer(*, user, assistant_message_id):
-    original = Message.objects.select_related("conversation", "in_reply_to").get(pk=assistant_message_id)
+    original = Message.objects.select_related("conversation", "in_reply_to").get(
+        pk=assistant_message_id
+    )
     conversation = original.conversation
     if original.role != Message.Role.ASSISTANT or conversation.created_by_id != user.id:
         raise PermissionError("没有重新生成该回答的权限")

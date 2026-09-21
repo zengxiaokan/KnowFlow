@@ -1,5 +1,3 @@
-import json
-
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponseBadRequest
@@ -27,6 +25,13 @@ def workflow_list(request):
         )
         .select_related("knowledge_base")
     )
+    for workflow in workflows:
+        version = workflow.versions.order_by("-number").first()
+        workflow.input_fields = []
+        for node in version.definition.get("nodes", []) if version else []:
+            if node.get("type") == "input":
+                name = node.get("input_key", node["key"])
+                workflow.input_fields.append({"name": name, "label": node.get("label", name)})
     runs = WorkflowRun.objects.filter(
         organization_id__in=organization_ids,
         workflow_version__workflow__in=workflows,
@@ -76,7 +81,7 @@ def workflow_create(request):
             knowledge_base_id=form.cleaned_data["knowledge_base"] or None,
             name=form.cleaned_data["name"],
             description=form.cleaned_data["description"],
-            definition=form.cleaned_data["definition"],
+            definition=form.definition(),
         )
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
@@ -90,14 +95,27 @@ def workflow_run(request, workflow_id):
         Workflow.objects.filter(organization__memberships__user=request.user).distinct(),
         pk=workflow_id,
     )
-    try:
-        input_data = json.loads(request.POST.get("input_data", "{}"))
-        if not isinstance(input_data, dict):
-            raise ValueError
-    except (json.JSONDecodeError, ValueError):
-        return HttpResponseBadRequest("输入必须是 JSON 对象")
+    input_data = {
+        key: value.strip()
+        for key, value in request.POST.items()
+        if key != "csrfmiddlewaretoken" and value.strip()
+    }
+    if not input_data:
+        return HttpResponseBadRequest("请至少填写一个输入值")
     launch_workflow(user=request.user, workflow=workflow, input_data=input_data)
     return redirect("workflow_list")
+
+
+@login_required
+def workflow_run_detail(request, run_id):
+    run = get_object_or_404(
+        WorkflowRun.objects.select_related("workflow_version__workflow").prefetch_related(
+            "step_runs"
+        ),
+        pk=run_id,
+        organization__memberships__user=request.user,
+    )
+    return render(request, "workflows/run_detail.html", {"run": run})
 
 
 @login_required

@@ -77,6 +77,42 @@
     if (submitButton) submitButton.disabled = sending;
   };
 
+  const ensureAssistantActions = (article) => {
+    if (article.querySelector(".message-actions")) return;
+    const actions = document.createElement("div");
+    actions.className = "message-actions";
+    const copy = document.createElement("button");
+    copy.className = "message-action";
+    copy.type = "button";
+    copy.dataset.copyAnswer = "";
+    copy.textContent = "复制";
+    actions.appendChild(copy);
+    article.prepend(actions);
+  };
+
+  const addCodeCopyButtons = (root) => {
+    root.querySelectorAll("pre").forEach((block) => {
+      if (block.querySelector("[data-copy-code]")) return;
+      const button = document.createElement("button");
+      button.className = "code-copy";
+      button.type = "button";
+      button.dataset.copyCode = "";
+      button.textContent = "复制代码";
+      block.prepend(button);
+    });
+  };
+
+  const copyText = async (text, button) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      const original = button.textContent;
+      button.textContent = "已复制";
+      window.setTimeout(() => { button.textContent = original; }, 1200);
+    } catch (error) {
+      button.textContent = "复制失败";
+    }
+  };
+
   const addMessage = (role, content, id) => {
     log.querySelector(".chat-empty")?.remove();
     const article = document.createElement("article");
@@ -86,6 +122,7 @@
     body.className = "message-content";
     body.textContent = content;
     article.appendChild(body);
+    if (role === "assistant") ensureAssistantActions(article);
     log.appendChild(article);
     log.scrollTop = log.scrollHeight;
     return article;
@@ -138,6 +175,8 @@
         if (element && event.rendered_content) {
           element.classList.remove("is-pending");
           element.querySelector(".message-content").innerHTML = event.rendered_content;
+          ensureAssistantActions(element);
+          addCodeCopyButtons(element);
         }
         if (element) renderSources(element, event.sources);
         if (event.usage) {
@@ -166,6 +205,20 @@
   };
 
   const initialConversation = document.getElementById("chat-panel").dataset.initialConversation;
+  document.querySelectorAll(".chat-message.assistant").forEach((article) => {
+    ensureAssistantActions(article);
+    addCodeCopyButtons(article);
+  });
+  document.addEventListener("click", (event) => {
+    const answerButton = event.target.closest("[data-copy-answer]");
+    if (answerButton) {
+      const content = answerButton.closest(".chat-message").querySelector(".message-content");
+      copyText(content.innerText, answerButton);
+      return;
+    }
+    const codeButton = event.target.closest("[data-copy-code]");
+    if (codeButton) copyText(codeButton.closest("pre").querySelector("code").textContent, codeButton);
+  });
   if (initialConversation) connectConversation("/ws/conversations/" + initialConversation + "/");
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {

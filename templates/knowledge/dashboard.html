@@ -21,10 +21,11 @@
       <div class="empty-state"><div class="empty-symbol">⌁</div><h2>从第一个知识库开始</h2><p>建立知识库后即可上传 PDF、Word 或 Markdown 文档。</p><button class="button button-primary" data-modal-open="create-kb">新建知识库</button></div>
     {% endfor %}
   </section>
+  <section class="usage-chart"><h2>近 14 天 Token 用量</h2><div class="usage-bars">{% for item in usage_by_day %}<div title="{{ item.day }}：{{ item.tokens }} Token"><span style="height: {{ item.height }}px"></span><small>{{ item.day|date:"m-d" }}</small></div>{% empty %}<p class="muted">还没有模型用量记录。</p>{% endfor %}</div></section>
   <dialog id="create-kb" class="modal">
     <form method="post" action="{% url 'knowledge_base_create' %}" class="stack-form">{% csrf_token %}
       <div class="modal-heading"><h2>新建知识库</h2><button type="button" class="icon-button" data-modal-close>×</button></div>
-      <label>{{ knowledge_base_form.name.label }}{{ knowledge_base_form.name }}</label><label>{{ knowledge_base_form.description.label }}{{ knowledge_base_form.description }}</label><label>{{ knowledge_base_form.access_scope.label }}{{ knowledge_base_form.access_scope }}</label><button class="button button-primary" type="submit">创建知识库</button>
+      <label>{{ knowledge_base_form.name.label }}{{ knowledge_base_form.name }}</label><label>{{ knowledge_base_form.description.label }}{{ knowledge_base_form.description }}</label><label>{{ knowledge_base_form.assistant_prompt.label }}{{ knowledge_base_form.assistant_prompt }}<small>{{ knowledge_base_form.assistant_prompt.help_text }}</small></label><label>{{ knowledge_base_form.access_scope.label }}{{ knowledge_base_form.access_scope }}</label><button class="button button-primary" type="submit">创建知识库</button>
     </form>
   </dialog>
 {% endblock %}

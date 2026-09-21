@@ -38,9 +38,7 @@ def _retrieve_sources(knowledge_base, question: str):
         candidates = sorted(chunks, key=cosine_distance)[: settings.RAG_CANDIDATE_COUNT]
         for chunk in candidates:
             chunk.distance = cosine_distance(chunk)
-        return [
-            chunk for chunk in candidates if chunk.distance <= settings.RAG_MAX_COSINE_DISTANCE
-        ]
+        return [chunk for chunk in candidates if chunk.distance <= settings.RAG_MAX_COSINE_DISTANCE]
 
     candidates = list(
         Chunk.objects.filter(
@@ -88,6 +86,9 @@ def _messages_for_model(question: str, chunks, history=None) -> list[dict[str, s
         "可以基于资料中的知识点组织答案，但必须明确标注为‘基于资料生成’，不能冒充原文。"
         "使用中文回答，并在相关句子后用 [1]、[2] 形式标记资料来源。"
     )
+    assistant_prompt = chunks[0].knowledge_base.assistant_prompt.strip() if chunks else ""
+    if assistant_prompt:
+        system = f"{system}\n\n本知识库的额外助手规则：{assistant_prompt}"
     messages = [{"role": "system", "content": system}]
     messages.extend(
         {"role": message.role, "content": message.content[: settings.CHAT_HISTORY_MESSAGE_CHARS]}
@@ -131,7 +132,9 @@ def generate_answer(self, assistant_message_id: str):
     question_message = assistant.in_reply_to
     if question_message is None:
         question_message = (
-            conversation.messages.filter(role=Message.Role.USER, created_at__lte=assistant.created_at)
+            conversation.messages.filter(
+                role=Message.Role.USER, created_at__lte=assistant.created_at
+            )
             .order_by("-created_at")
             .first()
         )
@@ -175,9 +178,7 @@ def generate_answer(self, assistant_message_id: str):
         conversation.save(update_fields=["updated_at"])
 
         if usage is None:
-            usage_input = max(
-                1, sum(len(item["content"]) for item in model_messages) // 4
-            )
+            usage_input = max(1, sum(len(item["content"]) for item in model_messages) // 4)
             usage_output = max(1, len(content) // 4)
             estimated = True
         else:

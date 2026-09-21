@@ -83,7 +83,11 @@ def create_document_version(*, user, document: Document, uploaded_file):
             actor=user,
             event="document.version_uploaded",
             target=document,
-            metadata={"version": version.number, "file_type": file_type, "sha256": digest},
+            metadata={
+                "version": version.number,
+                "file_type": file_type,
+                "sha256": digest,
+            },
         )
         transaction.on_commit(lambda: enqueue_ingestion(ingestion_task))
     return version, ingestion_task
@@ -92,7 +96,10 @@ def create_document_version(*, user, document: Document, uploaded_file):
 def delete_document(*, user, document: Document):
     file_names = {
         name
-        for name in [document.source_file.name, *document.versions.values_list("source_file", flat=True)]
+        for name in [
+            document.source_file.name,
+            *document.versions.values_list("source_file", flat=True),
+        ]
         if name
     }
     storage = document.source_file.storage
@@ -115,7 +122,9 @@ def delete_knowledge_base(*, user, knowledge_base):
         storage = storage or document.source_file.storage
         if document.source_file.name:
             file_names.add(document.source_file.name)
-        file_names.update(name for name in document.versions.values_list("source_file", flat=True) if name)
+        file_names.update(
+            name for name in document.versions.values_list("source_file", flat=True) if name
+        )
     with transaction.atomic():
         record_audit(
             organization=knowledge_base.organization,

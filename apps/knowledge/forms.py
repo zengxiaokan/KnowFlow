@@ -10,6 +10,14 @@ class KnowledgeBaseForm(forms.Form):
     description = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"rows": 3}), label="说明"
     )
+    assistant_prompt = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={"rows": 4, "placeholder": "例如：回答简洁，先给结论，再列要点。"}
+        ),
+        label="助手提示词",
+        help_text="仅影响该知识库的回答风格与任务规则；回答仍只能依据检索到的资料。",
+    )
 
 
 class DocumentRenameForm(forms.Form):
@@ -23,9 +31,7 @@ class DocumentRenameForm(forms.Form):
 
 def validate_document_file(uploaded_file):
     if uploaded_file.size > settings.MAX_UPLOAD_BYTES:
-        raise forms.ValidationError(
-            f"文件不能超过 {settings.MAX_UPLOAD_BYTES // 1024 // 1024} MB"
-        )
+        raise forms.ValidationError(f"文件不能超过 {settings.MAX_UPLOAD_BYTES // 1024 // 1024} MB")
     try:
         file_type_for(uploaded_file.name)
     except UnsupportedDocumentError as exc:
@@ -59,7 +65,5 @@ class DocumentBatchUploadForm(forms.Form):
     def clean_files(self):
         uploaded_files = self.cleaned_data["files"]
         if len(uploaded_files) > settings.MAX_BATCH_UPLOAD_COUNT:
-            raise forms.ValidationError(
-                f"一次最多上传 {settings.MAX_BATCH_UPLOAD_COUNT} 个文件"
-            )
+            raise forms.ValidationError(f"一次最多上传 {settings.MAX_BATCH_UPLOAD_COUNT} 个文件")
         return [validate_document_file(uploaded_file) for uploaded_file in uploaded_files]

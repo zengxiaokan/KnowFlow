@@ -1,6 +1,6 @@
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseBadRequest, JsonResponse
-from django.shortcuts import redirect
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
@@ -41,3 +41,44 @@ def regenerate(request, assistant_message_id):
         return HttpResponseBadRequest(str(exc))
     url = reverse("knowledge_base_detail", args=[conversation.knowledge_base_id])
     return redirect(f"{url}?conversation={conversation.id}")
+
+
+def _owned_conversation(request, conversation_id):
+    return get_object_or_404(Conversation, pk=conversation_id, created_by=request.user)
+
+
+@login_required
+@require_POST
+def conversation_rename(request, conversation_id):
+    conversation = _owned_conversation(request, conversation_id)
+    title = request.POST.get("title", "").strip()[:160]
+    if not title:
+        return HttpResponseBadRequest("会话名称不能为空")
+    conversation.title = title
+    conversation.save(update_fields=["title", "updated_at"])
+    return redirect(
+        f"{reverse('knowledge_base_detail', args=[conversation.knowledge_base_id])}?conversation={conversation.id}"
+    )
+
+
+@login_required
+@require_POST
+def conversation_delete(request, conversation_id):
+    conversation = _owned_conversation(request, conversation_id)
+    knowledge_base_id = conversation.knowledge_base_id
+    conversation.delete()
+    return redirect(
+        f"{reverse('knowledge_base_detail', args=[knowledge_base_id])}?conversation=new"
+    )
+
+
+@login_required
+def conversation_export(request, conversation_id):
+    conversation = _owned_conversation(request, conversation_id)
+    lines = [f"# {conversation.title or 'KnowFlow 对话记录'}", ""]
+    for message in conversation.messages.all():
+        role = "用户" if message.role == Message.Role.USER else "助手"
+        lines.extend([f"## {role}", "", message.content, ""])
+    response = HttpResponse("\n".join(lines), content_type="text/markdown; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="knowflow-conversation.md"'
+    return response

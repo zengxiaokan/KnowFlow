@@ -1,29 +1,18 @@
-import json
-
 from django import forms
 
 from apps.knowledge.permissions import visible_knowledge_bases
-
-SAMPLE_DEFINITION = (
-    '{"nodes":[{"key":"input","type":"input","input_key":"topic"},'
-    '{"key":"draft","type":"llm","prompt":"请总结：{{ input }}"}]}'
-)
 
 
 class WorkflowCreateForm(forms.Form):
     name = forms.CharField(max_length=160, label="名称")
     description = forms.CharField(required=False, widget=forms.Textarea, label="说明")
     knowledge_base = forms.ChoiceField(required=False, label="知识库")
-    definition = forms.CharField(
-        widget=forms.Textarea(
-            attrs={
-                "rows": 12,
-                "spellcheck": "false",
-                "placeholder": SAMPLE_DEFINITION,
-            }
-        ),
-        label="节点定义（JSON）",
+    input_key = forms.SlugField(initial="input", label="输入变量名")
+    prompt = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 5, "placeholder": "请根据 {{ input }} 输出清晰结论"}),
+        label="提示词模板",
     )
+    use_retrieval = forms.BooleanField(required=False, initial=True, label="先检索绑定知识库")
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,11 +20,12 @@ class WorkflowCreateForm(forms.Form):
             (str(item.id), item.name) for item in visible_knowledge_bases(user)
         ]
 
-    def clean_definition(self):
-        try:
-            value = json.loads(self.cleaned_data["definition"])
-        except json.JSONDecodeError as exc:
-            raise forms.ValidationError("请输入有效 JSON") from exc
-        if not isinstance(value, dict):
-            raise forms.ValidationError("定义必须是 JSON 对象")
-        return value
+    def definition(self):
+        key = self.cleaned_data["input_key"]
+        nodes = [{"key": key, "type": "input", "input_key": key, "label": key}]
+        source = f"{{{{ {key} }}}}"
+        if self.cleaned_data["use_retrieval"]:
+            nodes.append({"key": "context", "type": "retrieve", "query": source, "limit": 4})
+            source = "{{ context }}\n\n" + source
+        nodes.append({"key": "answer", "type": "llm", "prompt": self.cleaned_data["prompt"]})
+        return {"nodes": nodes}

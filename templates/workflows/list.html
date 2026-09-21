@@ -4,15 +4,15 @@
   <section class="page-heading"><div><p class="breadcrumb">工作流</p><h1>智能工作流</h1><p>使用输入、检索、提示词与 LLM 节点，异步完成可追踪的线性任务。</p></div></section>
   <section class="workflow-layout"><div class="workflow-list">
     {% for workflow in workflows %}
-      <article class="workflow-item"><div><h2>{{ workflow.name }}</h2><p>{{ workflow.description|default:"暂无说明" }}</p><small>{% if workflow.knowledge_base %}知识库：{{ workflow.knowledge_base.name }}{% else %}不使用知识库{% endif %}</small></div><form method="post" action="{% url 'workflow_run' workflow.id %}" class="inline-run">{% csrf_token %}<input name="input_data" value='{"input":"请填写本次运行的主题"}' aria-label="运行输入 JSON"><button class="button button-secondary">运行</button></form></article>
+      <article class="workflow-item"><div><h2>{{ workflow.name }}</h2><p>{{ workflow.description|default:"暂无说明" }}</p><small>{% if workflow.knowledge_base %}知识库：{{ workflow.knowledge_base.name }}{% else %}不使用知识库{% endif %}</small></div><form method="post" action="{% url 'workflow_run' workflow.id %}" class="inline-run">{% csrf_token %}{% for field in workflow.input_fields %}<input name="{{ field.name }}" placeholder="{{ field.label }}" required>{% endfor %}<button class="button button-secondary">运行</button></form></article>
     {% empty %}<div class="empty-state"><h2>还没有工作流</h2><p>右侧创建第一个线性工作流。</p></div>{% endfor %}
     <article class="workflow-editor">
       <h2>最近运行</h2>
       <table class="document-table"><thead><tr><th>工作流</th><th>状态</th><th>时间</th><th></th></tr></thead><tbody>
-        {% for run in runs %}<tr><td>{{ run.workflow_version.workflow.name }}</td><td>{{ run.get_status_display }}</td><td>{{ run.created_at|date:"Y-m-d H:i" }}</td><td>{% if run.status == "failed" %}<form method="post" action="{% url 'workflow_run_retry' run.id %}">{% csrf_token %}<button class="link-button">重试</button></form>{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">还没有工作流运行记录。</td></tr>{% endfor %}
+        {% for run in runs %}<tr><td>{{ run.workflow_version.workflow.name }}</td><td>{{ run.get_status_display }}</td><td>{{ run.created_at|date:"Y-m-d H:i" }}</td><td><a class="link-button" href="{% url 'workflow_run_detail' run.id %}">查看结果</a>{% if run.status == "failed" %}<form method="post" action="{% url 'workflow_run_retry' run.id %}">{% csrf_token %}<button class="link-button">重试</button></form>{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">还没有工作流运行记录。</td></tr>{% endfor %}
       </tbody></table>
     </article>
   </div>
-  <aside class="workflow-editor"><h2>新建工作流</h2><form method="post" action="{% url 'workflow_create' %}" class="stack-form">{% csrf_token %}{{ form.non_field_errors }}<label>{{ form.name.label }}{{ form.name }}{{ form.name.errors }}</label><label>{{ form.description.label }}{{ form.description }}</label><label>{{ form.knowledge_base.label }}{{ form.knowledge_base }}</label><label>{{ form.definition.label }}{{ form.definition }}{{ form.definition.errors }}</label><button class="button button-primary">保存工作流</button></form></aside>
+  <aside class="workflow-editor"><h2>新建工作流</h2><form method="post" action="{% url 'workflow_create' %}" class="stack-form">{% csrf_token %}{{ form.non_field_errors }}<label>{{ form.name.label }}{{ form.name }}{{ form.name.errors }}</label><label>{{ form.description.label }}{{ form.description }}</label><label>{{ form.knowledge_base.label }}{{ form.knowledge_base }}</label><label>{{ form.input_key.label }}{{ form.input_key }}</label><label>{{ form.prompt.label }}{{ form.prompt }}</label><label>{{ form.use_retrieval }} {{ form.use_retrieval.label }}</label><button class="button button-primary">保存工作流</button></form></aside>
   </section>
 {% endblock %}
