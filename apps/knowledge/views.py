@@ -3,10 +3,11 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import IntegrityError
+from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Q, Sum
-from django.db.models.functions import TruncDate
-from django.http import FileResponse, HttpResponseBadRequest
+from django.db.models.functions import Length, TruncDate
+from django.http import FileResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -14,8 +15,13 @@ from apps.chat.models import Conversation, ModelUsageRecord
 from apps.identity.models import Membership
 from apps.identity.services import record_audit
 
-from .forms import DocumentBatchUploadForm, DocumentRenameForm, KnowledgeBaseForm
-from .models import Chunk, Document, IngestionTask, KnowledgeBase
+from .forms import (
+    DocumentBatchUploadForm,
+    DocumentRenameForm,
+    KnowledgeBaseForm,
+    KnowledgeBaseMemberForm,
+)
+from .models import Chunk, Document, IngestionTask, KnowledgeBase, KnowledgeBaseMembership
 from .permissions import (
     can_delete_knowledge_base,
     can_manage_knowledge_base,
@@ -98,6 +104,7 @@ def knowledge_base_create(request):
 @login_required
 def knowledge_base_detail(request, knowledge_base_id):
     knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
+    can_manage = can_manage_knowledge_base(request.user, knowledge_base)
     documents = knowledge_base.documents.select_related("current_version").prefetch_related(
         "versions"
     )
@@ -151,6 +158,9 @@ def knowledge_base_detail(request, knowledge_base_id):
             "can_delete_knowledge_base": can_delete_knowledge_base(request.user, knowledge_base),
             "search_query": query,
             "search_results": search_results,
+            "can_manage_knowledge_base": can_manage,
+            "knowledge_base_member_rows": _knowledge_base_member_context(knowledge_base),
+            "knowledge_base_member_role_choices": KnowledgeBaseMembership.Role.choices,
         },
     )
 
@@ -247,6 +257,7 @@ def knowledge_base_update(request, knowledge_base_id):
     if not form.is_valid():
         messages.error(request, "请检查知识库名称和设置。")
     else:
+        old_access_scope = knowledge_base.access_scope
         knowledge_base.name = form.cleaned_data["name"]
         knowledge_base.description = form.cleaned_data["description"]
         knowledge_base.assistant_prompt = form.cleaned_data["assistant_prompt"]
@@ -269,6 +280,10 @@ def knowledge_base_update(request, knowledge_base_id):
                 actor=request.user,
                 event="knowledge_base.updated",
                 target=knowledge_base,
+                metadata={
+                    "access_scope_before": old_access_scope,
+                    "access_scope_after": knowledge_base.access_scope,
+                },
             )
             messages.success(request, "知识库设置已保存。")
     return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
@@ -298,6 +313,7 @@ def ingestion_retry(request, task_id):
     )
     if not can_manage_knowledge_base(request.user, knowledge_base):
         return HttpResponseBadRequest("你没有重试任务的权限")
+    is_rechunk = task.status == IngestionTask.Status.SUCCEEDED
     try:
         retry_ingestion(task)
     except ValueError as exc:
@@ -307,6 +323,13 @@ def ingestion_retry(request, task_id):
         actor=request.user,
         event="ingestion.retried",
         target=task,
+        metadata={"mode": "rechunk" if is_rechunk else "retry"},
+    )
+    messages.success(
+        request,
+        "已开始重新切片，当前版本会在处理完成后替换旧切片。"
+        if is_rechunk
+        else "已重新加入解析队列。",
     )
     return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
 
@@ -318,3 +341,165 @@ def document_download(request, document_id):
     return FileResponse(
         document.source_file.open("rb"), as_attachment=True, filename=document.source_file.name
     )
+
+
+@login_required
+def document_chunks(request, document_id):
+    document = get_object_or_404(
+        Document.objects.select_related("knowledge_base", "current_version"),
+        pk=document_id,
+    )
+    knowledge_base = get_visible_knowledge_base(request.user, document.knowledge_base_id)
+    can_manage = can_manage_knowledge_base(request.user, knowledge_base)
+    rechunk_task = None
+    if document.current_version_id:
+        rechunk_task = document.current_version.ingestion_tasks.order_by("-created_at").first()
+    base_chunks = Chunk.objects.none()
+    if document.current_version_id:
+        base_chunks = Chunk.objects.filter(document_version_id=document.current_version_id)
+    query = request.GET.get("q", "").strip()
+    total_count = base_chunks.count()
+    total_characters = base_chunks.aggregate(total=Sum(Length("content")))["total"] or 0
+    filtered_chunks = base_chunks
+    if query:
+        filtered_chunks = filtered_chunks.filter(
+            Q(heading__icontains=query) | Q(content__icontains=query)
+        )
+    paginator = Paginator(filtered_chunks.order_by("ordinal"), 30)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    chunking = {}
+    if document.current_version and isinstance(document.current_version.metadata, dict):
+        chunking = document.current_version.metadata.get("chunking", {})
+    chunk_stats = {
+        "total_count": total_count,
+        "result_count": paginator.count,
+        "total_characters": total_characters,
+        "average_characters": round(total_characters / total_count) if total_count else 0,
+        "target_size": chunking.get("target_size", settings.CHUNK_SIZE),
+        "max_size": chunking.get("max_size", settings.CHUNK_MAX_SIZE),
+        "overlap": chunking.get("overlap", settings.CHUNK_OVERLAP),
+    }
+    return render(
+        request,
+        "knowledge/chunks.html",
+        {
+            "document": document,
+            "page_obj": page_obj,
+            "search_query": query,
+            "chunk_stats": chunk_stats,
+            "can_manage_knowledge_base": can_manage,
+            "rechunk_task": rechunk_task,
+        },
+    )
+
+
+def _knowledge_base_member_context(knowledge_base):
+    memberships = knowledge_base.organization.memberships.select_related("user").order_by(
+        "user__username"
+    )
+    granted = {
+        member.user_id: member
+        for member in knowledge_base.memberships.select_related("user")
+    }
+    return [
+        {
+            "organization_membership": member,
+            "knowledge_base_membership": granted.get(member.user_id),
+            "is_owner": member.role == Membership.Role.OWNER,
+        }
+        for member in memberships
+    ]
+
+
+@login_required
+@require_POST
+def knowledge_base_member_update(request, knowledge_base_id, user_id):
+    knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseForbidden("你没有管理知识库成员的权限")
+    organization_membership = get_object_or_404(
+        Membership,
+        organization_id=knowledge_base.organization_id,
+        user_id=user_id,
+    )
+    if organization_membership.role == Membership.Role.OWNER:
+        return HttpResponseForbidden("组织所有者自动拥有知识库管理权限")
+
+    form = KnowledgeBaseMemberForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "请选择有效的知识库角色。")
+        return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+    new_role = form.cleaned_data["role"]
+    membership = knowledge_base.memberships.filter(user_id=user_id).first()
+    if membership is None:
+        event = "knowledge_base.member_granted"
+        old_role = None
+        membership = KnowledgeBaseMembership(
+            knowledge_base=knowledge_base,
+            user=organization_membership.user,
+            role=new_role,
+        )
+    elif membership.role == new_role:
+        messages.info(request, "知识库成员授权没有变化。")
+        return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+    else:
+        event = "knowledge_base.member_role_changed"
+        old_role = membership.role
+        membership.role = new_role
+
+    with transaction.atomic():
+        membership.save()
+        record_audit(
+            organization=knowledge_base.organization,
+            actor=request.user,
+            event=event,
+            target=knowledge_base,
+            metadata={
+                "user_id": user_id,
+                "username": organization_membership.user.username,
+                "old_role": old_role,
+                "new_role": new_role,
+            },
+        )
+    messages.success(
+        request,
+        f"已将 {organization_membership.user.username} 授权为 "
+        f"{membership.get_role_display()}。",
+    )
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)
+
+
+@login_required
+@require_POST
+def knowledge_base_member_remove(request, knowledge_base_id, user_id):
+    knowledge_base = get_visible_knowledge_base(request.user, knowledge_base_id)
+    if not can_manage_knowledge_base(request.user, knowledge_base):
+        return HttpResponseForbidden("你没有管理知识库成员的权限")
+    organization_membership = get_object_or_404(
+        Membership,
+        organization_id=knowledge_base.organization_id,
+        user_id=user_id,
+    )
+    if organization_membership.role == Membership.Role.OWNER:
+        return HttpResponseForbidden("组织所有者自动拥有知识库管理权限")
+    membership = get_object_or_404(
+        KnowledgeBaseMembership,
+        knowledge_base=knowledge_base,
+        user_id=user_id,
+    )
+    with transaction.atomic():
+        record_audit(
+            organization=knowledge_base.organization,
+            actor=request.user,
+            event="knowledge_base.member_removed",
+            target=knowledge_base,
+            metadata={
+                "user_id": user_id,
+                "username": organization_membership.user.username,
+                "old_role": membership.role,
+            },
+        )
+        membership.delete()
+    messages.success(request, f"已移除 {organization_membership.user.username} 的知识库授权。")
+    return redirect("knowledge_base_detail", knowledge_base_id=knowledge_base.id)

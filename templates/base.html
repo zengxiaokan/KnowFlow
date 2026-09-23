@@ -33,7 +33,7 @@
       </aside>
       <section class="app-main">
         <header class="topbar">
-          <div class="workspace-name">个人空间 <span aria-hidden="true">⌄</span></div>
+          <div class="topbar-left"><div class="workspace-name">个人空间 <span aria-hidden="true">⌄</span></div>{% if request.resolver_match.url_name == 'knowledge_base_detail' %}<div class="global-command"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg><span>搜索文档或会话</span><kbd>⌘K</kbd></div>{% endif %}</div>
           <div class="topbar-user"><a href="{% url 'dashboard' %}">用量</a><span class="avatar">{{ request.user.username|slice:":1"|upper }}</span><span>{{ request.user.username }}</span></div>
         </header>
         <main class="page-content">

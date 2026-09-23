@@ -2,6 +2,7 @@ from django import forms
 from django.conf import settings
 
 from .exceptions import UnsupportedDocumentError
+from .models import KnowledgeBase, KnowledgeBaseMembership
 from .parsers import file_type_for
 
 
@@ -18,14 +19,22 @@ class KnowledgeBaseForm(forms.Form):
         label="助手提示词",
         help_text="仅影响该知识库的回答风格与任务规则；回答仍只能依据检索到的资料。",
     )
+    access_scope = forms.ChoiceField(
+        choices=KnowledgeBase.AccessScope.choices,
+        label="访问范围",
+        help_text="组织内可见会向组织成员开放；仅获授权成员需要显式授权。",
+    )
 
 
 class DocumentRenameForm(forms.Form):
     title = forms.CharField(max_length=255, label="文档名称")
-    access_scope = forms.ChoiceField(
-        choices=(("organization", "组织内可见"), ("restricted", "仅获授权成员")),
-        initial="organization",
-        label="访问范围",
+
+
+class KnowledgeBaseMemberForm(forms.Form):
+    role = forms.ChoiceField(
+        choices=KnowledgeBaseMembership.Role.choices,
+        initial=KnowledgeBaseMembership.Role.READER,
+        label="知识库角色",
     )
 
 

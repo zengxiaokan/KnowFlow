@@ -1,4 +1,5 @@
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -61,13 +62,23 @@ def process_document(self, ingestion_task_id: str):
         file_type = version.file_type or document.file_type
         text, metadata = extract_text(source_file, file_type)
         version.extracted_characters = len(text)
-        version.metadata = metadata
-        version.save(update_fields=["extracted_characters", "metadata"])
         _set_task(task, stage=IngestionTask.Stage.CHUNKING, progress=30)
 
         payloads = split_into_chunks(text)
         if not payloads:
             raise DocumentParsingError("文档没有可用于检索的文本块")
+        chunk_lengths = [len(payload.content) for payload in payloads]
+        version.metadata = {
+            **(metadata or {}),
+            "chunking": {
+                "chunk_count": len(payloads),
+                "target_size": settings.CHUNK_SIZE,
+                "max_size": settings.CHUNK_MAX_SIZE,
+                "overlap": settings.CHUNK_OVERLAP,
+                "average_characters": round(sum(chunk_lengths) / len(chunk_lengths)),
+            },
+        }
+        version.save(update_fields=["extracted_characters", "metadata"])
         _set_task(task, stage=IngestionTask.Stage.EMBEDDING, progress=45)
 
         provider = get_embedding_provider()
@@ -104,6 +115,8 @@ def process_document(self, ingestion_task_id: str):
                         ordinal=payload.ordinal,
                         heading=payload.heading,
                         content=payload.content,
+                        page_start=payload.page_start,
+                        page_end=payload.page_end,
                         embedding=vector,
                     )
                     for payload, vector in zip(payloads, vectors, strict=True)

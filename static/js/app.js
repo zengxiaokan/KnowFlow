@@ -62,6 +62,129 @@
     };
   });
 
+  const copyText = async (text, button) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      const original = button.textContent;
+      button.textContent = "已复制";
+      window.setTimeout(() => { button.textContent = original; }, 1200);
+    } catch (error) {
+      button.textContent = "复制失败";
+    }
+  };
+
+  document.querySelectorAll("[data-copy-chunk]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const content = button.closest(".chunk-card")?.querySelector(".chunk-content");
+      if (content) copyText(content.innerText, button);
+    });
+  });
+
+  const chunkPicker = document.querySelector("[data-chunk-picker]");
+  if (chunkPicker) {
+    const chunkCards = [...document.querySelectorAll("[data-chunk-card]")];
+    const showChunk = (chunkId) => {
+      chunkCards.forEach((card) => {
+        const isActive = card.dataset.chunkId === chunkId;
+        card.hidden = !isActive;
+        if (isActive) card.open = true;
+      });
+    };
+    showChunk(chunkPicker.value || chunkCards[0]?.dataset.chunkId);
+    chunkPicker.addEventListener("change", () => showChunk(chunkPicker.value));
+  }
+
+  const detailTabs = [...document.querySelectorAll(".detail-page .section-tabs [role='tab']")];
+  const setDetailTab = (activeTab) => {
+    detailTabs.forEach((tab) => {
+      const active = tab === activeTab;
+      tab.classList.toggle("is-current", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+  };
+  if (detailTabs.length) {
+    detailTabs[0].addEventListener("click", () => {
+      setDetailTab(detailTabs[0]);
+      document.querySelector(".document-table-wrap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    detailTabs[1]?.addEventListener("click", () => {
+      setDetailTab(detailTabs[1]);
+      const chat = document.getElementById("chat-panel");
+      chat?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => document.getElementById("question-input")?.focus(), 250);
+    });
+    detailTabs[2]?.addEventListener("click", () => {
+      const settings = document.getElementById("knowledge-base-settings");
+      if (settings) settings.showModal();
+      else detailTabs[2].hidden = true;
+    });
+    if (detailTabs[2] && !document.getElementById("knowledge-base-settings")) detailTabs[2].hidden = true;
+  }
+
+  const tableWrap = document.querySelector(".detail-page .document-table-wrap");
+  const documentRows = [...document.querySelectorAll(".detail-page .document-table tbody tr")]
+    .filter((row) => row.querySelector(".status"));
+  const updateDocumentCount = (visibleCount) => {
+    const count = document.querySelector("[data-document-count]");
+    if (count) count.textContent = String(visibleCount);
+  };
+  const filterButton = document.querySelector(".detail-page .library-toolbar > .toolbar-button");
+  if (filterButton && documentRows.length) {
+    const filterControl = document.createElement("details");
+    filterControl.className = "filter-control";
+    const summary = document.createElement("summary");
+    summary.className = "toolbar-button";
+    summary.innerHTML = filterButton.innerHTML;
+    const menu = document.createElement("div");
+    menu.className = "filter-menu";
+    menu.setAttribute("role", "menu");
+    const filters = [["all", "全部文档"], ["ready", "已就绪"], ["processing", "处理中"], ["failed", "失败"], ["uploaded", "已上传"]];
+    const emptyRow = document.createElement("tr");
+    emptyRow.className = "filter-empty-row";
+    emptyRow.hidden = true;
+    emptyRow.innerHTML = '<td colspan="5" class="table-empty">当前筛选条件下没有文档。</td>';
+    document.querySelector(".detail-page .document-table tbody")?.appendChild(emptyRow);
+    filters.forEach(([value, label]) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.textContent = label;
+      option.dataset.documentFilter = value;
+      if (value === "all") option.classList.add("is-active");
+      option.addEventListener("click", () => {
+        let visibleCount = 0;
+        document.querySelectorAll(".filter-menu [data-document-filter]").forEach((item) => item.classList.toggle("is-active", item === option));
+        documentRows.forEach((row) => {
+          const visible = value === "all" || row.querySelector(".status")?.classList.contains("status-" + value);
+          row.hidden = !visible;
+          if (visible) visibleCount += 1;
+        });
+        emptyRow.hidden = visibleCount !== 0;
+        updateDocumentCount(visibleCount);
+        filterControl.removeAttribute("open");
+      });
+      menu.appendChild(option);
+    });
+    filterControl.append(summary, menu);
+    filterButton.replaceWith(filterControl);
+  }
+
+  const viewSwitch = document.querySelector(".detail-page .view-switch");
+  if (viewSwitch && tableWrap) {
+    viewSwitch.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const isGrid = button.getAttribute("aria-label") === "网格视图";
+        tableWrap.classList.toggle("is-grid", isGrid);
+        viewSwitch.querySelectorAll("button").forEach((item) => {
+          const active = item === button;
+          item.classList.toggle("is-active", active);
+          item.setAttribute("aria-pressed", String(active));
+        });
+      });
+    });
+  }
+
   const form = document.getElementById("question-form");
   if (!form) return;
   const log = document.getElementById("chat-log");
@@ -100,17 +223,6 @@
       button.textContent = "复制代码";
       block.prepend(button);
     });
-  };
-
-  const copyText = async (text, button) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      const original = button.textContent;
-      button.textContent = "已复制";
-      window.setTimeout(() => { button.textContent = original; }, 1200);
-    } catch (error) {
-      button.textContent = "复制失败";
-    }
   };
 
   const addMessage = (role, content, id) => {

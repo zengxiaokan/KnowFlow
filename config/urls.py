@@ -19,12 +19,23 @@ urlpatterns = [
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("accounts/signup/", SignUpView.as_view(), name="signup"),
     path("team/", identity_views.team, name="team"),
+    path("team/audit/", identity_views.audit_log, name="audit_log"),
     path(
         "accounts/invitations/<uuid:token>/accept/",
         identity_views.invitation_accept,
         name="invitation_accept",
     ),
     path("team/invitations/", identity_views.invitation_create, name="invitation_create"),
+    path(
+        "team/members/<int:membership_id>/update/",
+        identity_views.member_update,
+        name="member_update",
+    ),
+    path(
+        "team/members/<int:membership_id>/remove/",
+        identity_views.member_remove,
+        name="member_remove",
+    ),
     path("knowledge/", include("apps.knowledge.urls")),
     path("workflows/", include("apps.workflows.urls")),
     path("api/v1/", include("apps.api.urls")),

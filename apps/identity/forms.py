@@ -2,6 +2,8 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
+from .models import Membership
+
 
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(label="邮箱地址")
@@ -45,4 +47,11 @@ class InvitationForm(forms.Form):
             ("viewer", "查看者：可使用已授权知识库"),
         ],
         label="角色",
+    )
+
+
+class MemberRoleForm(forms.Form):
+    role = forms.ChoiceField(
+        choices=Membership.Role.choices,
+        label="组织角色",
     )
