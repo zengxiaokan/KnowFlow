@@ -56,9 +56,8 @@ def conversation_rename(request, conversation_id):
         return HttpResponseBadRequest("会话名称不能为空")
     conversation.title = title
     conversation.save(update_fields=["title", "updated_at"])
-    return redirect(
-        f"{reverse('knowledge_base_detail', args=[conversation.knowledge_base_id])}?conversation={conversation.id}"
-    )
+    url = reverse("knowledge_base_detail", args=[conversation.knowledge_base_id])
+    return redirect(f"{url}?conversation={conversation.id}")
 
 
 @login_required
